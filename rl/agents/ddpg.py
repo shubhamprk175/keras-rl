@@ -25,7 +25,7 @@ class DDPGAgent(Agent):
     def __init__(self, nb_actions, actor, critic, critic_action_input, memory,
                  gamma=.99, batch_size=32, nb_steps_warmup_critic=1000, nb_steps_warmup_actor=1000,
                  train_interval=1, memory_interval=1, delta_range=None, delta_clip=np.inf,
-                 random_process=None, custom_model_objects={}, target_model_update=.001, **kwargs):
+                 random_process=None, clone_model=None, custom_model_objects={}, target_model_update=.001, **kwargs):
         if hasattr(actor.output, '__len__') and len(actor.output) > 1:
             raise ValueError('Actor "{}" has more than one output. DDPG expects an actor that has a single output.'.format(actor))
         if hasattr(critic.output, '__len__') and len(critic.output) > 1:
@@ -56,6 +56,7 @@ class DDPGAgent(Agent):
         self.nb_steps_warmup_actor = nb_steps_warmup_actor
         self.nb_steps_warmup_critic = nb_steps_warmup_critic
         self.random_process = random_process
+        self.clone_model = clone_model
         self.delta_clip = delta_clip
         self.gamma = gamma
         self.target_model_update = target_model_update
@@ -105,9 +106,15 @@ class DDPGAgent(Agent):
 
         # Compile target networks. We only use them in feed-forward mode, hence we can pass any
         # optimizer and loss since we never use it anyway.
-        self.target_actor = clone_model(self.actor, self.custom_model_objects)
+        if self.clone_model is None:
+            self.target_actor = clone_model(self.actor, self.custom_model_objects)
+        else:
+            self.target_actor = self.clone_model(self.actor, 'actor')
         self.target_actor.compile(optimizer='sgd', loss='mse')
-        self.target_critic = clone_model(self.critic, self.custom_model_objects)
+        if self.clone_model is None:
+            self.target_critic = clone_model(self.critic, self.custom_model_objects)
+        else:
+            self.target_critic = self.clone_model(self.critic, 'critic')
         self.target_critic.compile(optimizer='sgd', loss='mse')
 
         # We also compile the actor. We never optimize the actor using Keras but instead compute
