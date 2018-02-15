@@ -1,5 +1,6 @@
 from __future__ import division
 import warnings
+import pdb
 
 import keras.backend as K
 from keras.models import Model
@@ -9,10 +10,11 @@ from rl.core import Agent
 from rl.policy import EpsGreedyQPolicy, GreedyQPolicy
 from rl.util import *
 
-
 def mean_q(y_true, y_pred):
     return K.mean(K.max(y_pred, axis=-1))
 
+import tty, termios, sys
+import threading
 
 class AbstractDQNAgent(Agent):
     """Write me
@@ -737,6 +739,67 @@ class NAFAgent(AbstractDQNAgent):
         if self.processor is not None:
             names += self.processor.metrics_names[:]
         return names
+
+
+class HumanNAFAgent(NAFAgent):
+    """
+    Version where initial random exploration is replaced by direct human control. This allows
+    to quickly explore good trajectories. Once human exploration phase is over, the training
+    process continues as usual.
+    """
+
+    def __init__(self, **kwargs):
+        super(HumanNAFAgent, self).__init__(**kwargs)
+
+        # Parameters.
+        self.humanex = True
+        self.action = np.zeros((self.nb_actions, ))
+        self.motor_state = np.zeros((self.nb_actions, ))
+
+    def getchar(self):
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    def keyboard_input(self):
+        key = self.getchar()
+        if key == 'j': 
+            self.action += np.array([0.0, 0.01]) # left
+        if key == 'l': 
+            self.action -= np.array([0.0, 0.01]) # right
+        if key == 'i': 
+            self.action += np.array([0.01, 0.0]) # forward
+        if key == 'k': 
+            self.action -= np.array([0.01, 0.0]) # back
+
+    def select_action(self, state):
+        batch = self.process_state_batch([state])
+
+        if self.training:
+            self.action = np.zeros((self.nb_actions, ))
+            self.keyboard_input()
+        else:
+            self.action = self.mu_model.predict_on_batch(batch).flatten()
+        assert self.action.shape == (self.nb_actions,)
+
+        
+        """
+        # Apply noise, if a random process is set.
+        if self.training and self.random_process is not None:
+            noise = self.random_process.sample()
+            assert noise.shape == self.action.shape
+            self.action += noise
+        
+        print(self.action)
+        """
+        self.motor_state += self.action
+        print("\t\tMotors: ", self.motor_state)
+        return self.action
 
 
 # Aliases
