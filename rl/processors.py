@@ -54,3 +54,12 @@ class WhiteningNormalizerProcessor(Processor):
             self.normalizer = WhiteningNormalizer(shape=batch.shape[1:], dtype=batch.dtype)
         self.normalizer.update(batch)
         return self.normalizer.normalize(batch)
+
+
+class SqueezeProcessor(Processor):
+
+    def process_state_batch(self, batch):
+        # remove dumb extra indices (used for temporal nets)
+        out = np.squeeze(batch, axis=1) # first axis should be batch idx
+        #return batch
+        return out #  Error when checking : expected img_input to have 4 dimensions, but got array with shape (32, 1, 240, 320, 1)
