@@ -158,8 +158,8 @@ class Agent(object):
                 # This is were all of the work happens. We first perceive and compute the action
                 # (forward step) and then use the reward to improve (backward step).
                 action = self.forward(observation)
-                #if self.processor is not None: #NOTE: ddpg (and other algs) already run the process_action fxn inside self.forward. So it's not needed here.
-                #    action = self.processor.process_action(action)
+                if self.processor is not None:
+                    action = self.processor.process_action(action)
                 reward = 0.
                 accumulated_info = {}
                 done = False
