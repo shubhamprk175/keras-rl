@@ -229,6 +229,10 @@ class DDPGAgent(Agent):
         return self.actor.layers[:] + self.critic.layers[:]
 
     @property
+    def inputs(self):
+        return self.actor.inputs[:] + self.critic.inputs[:]
+
+    @property
     def metrics_names(self):
         names = self.critic.metrics_names[:]
         if self.processor is not None:

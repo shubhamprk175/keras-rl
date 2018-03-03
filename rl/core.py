@@ -424,6 +424,15 @@ class Agent(object):
         raise NotImplementedError()
 
     @property
+    def inputs(self):
+        """Returns all inputs of the underlying model(s).
+        
+        If the concrete implementation uses multiple internal models,
+        this method returns them in a concatenated list.
+        """
+        raise NotImplementedError()
+
+    @property
     def metrics_names(self):
         """The human-readable names of the agent's metrics. Must return as many names as there
         are metrics (see also `compile`).

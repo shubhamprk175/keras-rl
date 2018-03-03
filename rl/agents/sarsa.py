@@ -199,6 +199,10 @@ class SARSAAgent(Agent):
         return self.model.layers[:]
 
     @property
+    def inputs(self):
+        return self.model.inputs[:]
+
+    @property
     def metrics_names(self):
         # Throw away individual losses and replace output name since this is hidden from the user.
         assert len(self.trainable_model.output_names) == 2
