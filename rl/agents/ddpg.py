@@ -1,6 +1,6 @@
 from __future__ import division
 from collections import deque
-import os
+import os, sys, tty, termios, sys
 import warnings
 
 import numpy as np
@@ -209,6 +209,7 @@ class DDPGAgent(Agent):
         if self.training and self.random_process is not None:
             noise = self.random_process.sample()
             assert noise.shape == action.shape
+            print "\nRaw action: {}. Noise: {}.".format(action, noise)
             action += noise
 
         return action
@@ -325,3 +326,75 @@ class DDPGAgent(Agent):
             self.update_target_models_hard()
 
         return metrics
+
+
+class HumanDDPGAgent(DDPGAgent):
+    """
+    Version where initial random exploration is replaced by direct human control. This allows
+    to quickly explore good trajectories. Once human exploration phase is over, the training
+    process continues as usual.
+    """
+
+    def __init__(self, humanex_n_steps_annealing=500, humanex_prob_min=0.0, **kwargs):
+        super(HumanDDPGAgent, self).__init__(**kwargs)
+
+        # Parameters.
+        self.humanex = True
+        self.action = np.zeros((self.nb_actions, ))
+        self.humanex_n_steps_annealing = humanex_n_steps_annealing
+        self.humanex_prob_min = humanex_prob_min
+        self.humanex_force = 0.0
+        # update probability
+        self.updateHumanexProb()
+
+    def getchar(self):
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    def keyboard_input(self):
+        key = self.getchar()
+        if key == 'j': 
+            self.action = np.array([-0.5]) # left
+        if key == 'l': 
+            self.action = np.array([0.5]) # right
+        return self.action
+
+    def select_human_action(self, state):
+        batch = self.process_state_batch([state])
+        self.action = np.zeros((self.nb_actions, ))
+        action = self.keyboard_input()
+        assert action.shape == (self.nb_actions,)
+
+        # Apply noise, if a random process is set.
+        if self.training and self.random_process is not None:
+            noise = self.random_process.sample()
+            assert noise.shape == action.shape
+            #print "\nRaw action: {}. Noise: {}.".format(action, noise)
+            action += noise
+        
+        self.action = action
+        return self.action
+
+    def updateHumanexProb(self):
+        ratio = np.clip(self.step / self.humanex_n_steps_annealing, 0., 1.)
+        self.humanex_prob = 1.0 * (1.0 - ratio) + self.humanex_prob_min * ratio
+
+    def select_action(self, state):
+        # eps-greedy approach to selecting either human action or network action
+        if np.random.rand() <= self.humanex_prob:
+            action = self.select_human_action(state)
+            # to see how the agent is changing. This won't use the action, will just print it out
+            super(HumanDDPGAgent, self).select_action(state)
+        else:
+            action = super(HumanDDPGAgent, self).select_action(state)
+
+        # update probability
+        self.updateHumanexProb()
+
+        return action

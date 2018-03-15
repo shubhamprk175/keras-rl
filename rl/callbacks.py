@@ -9,6 +9,7 @@ import numpy as np
 
 from keras.callbacks import Callback as KerasCallback, CallbackList as KerasCallbackList
 from keras.utils.generic_utils import Progbar
+from rl.memory import SaveableMemory
 
 
 class Callback(KerasCallback):
@@ -329,12 +330,12 @@ class Visualizer(Callback):
 
 
 class ModelIntervalCheckpoint(Callback):
-    def __init__(self, filepath, interval, verbose=0):
+    def __init__(self, filepath, interval, verbose=0, total_steps=0):
         super(ModelIntervalCheckpoint, self).__init__()
         self.filepath = filepath
         self.interval = interval
         self.verbose = verbose
-        self.total_steps = 0
+        self.total_steps = total_steps
 
     def on_step_end(self, step, logs={}):
         self.total_steps += 1
@@ -346,3 +347,25 @@ class ModelIntervalCheckpoint(Callback):
         if self.verbose > 0:
             print('Step {}: saving model to {}'.format(self.total_steps, filepath))
         self.model.save_weights(filepath, overwrite=True)
+
+class MemoryIntervalCheckpoint(Callback):
+    def __init__(self, saveable_memory, filepath, interval, num_samples=None, verbose=0, total_steps=0):
+        super(MemoryIntervalCheckpoint, self).__init__()
+        assert( hasattr(saveable_memory, 'dump_memory') )
+        self.saveable_memory = saveable_memory
+        self.filepath = filepath
+        self.interval = interval
+        self.num_samples = num_samples
+        self.verbose = verbose
+        self.total_steps = total_steps
+
+    def on_step_end(self, step, logs={}):
+        self.total_steps += 1
+        if self.total_steps % self.interval != 0:
+            # Nothing to do.
+            return
+
+        filepath = self.filepath.format(step=self.total_steps, **logs)
+        if self.verbose > 0:
+            print('Step {}: saving memory to {}'.format(self.total_steps, filepath))
+        self.saveable_memory.dump_memory(filepath, num_samples=self.num_samples)

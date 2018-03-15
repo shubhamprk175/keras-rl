@@ -2,7 +2,8 @@ from __future__ import absolute_import
 from collections import deque, namedtuple
 import warnings
 import random
-
+import os
+import pickle
 import numpy as np
 
 
@@ -42,10 +43,70 @@ class RingBuffer(object):
     def __len__(self):
         return self.length
 
-    def __getitem__(self, idx):
+    def OutOfBounds(self, idx):
         if idx < 0 or idx >= self.length:
+            return True
+        else:
+            return False
+
+    def OutOfBoundsStop(self, idx):
+        if idx < 0 or idx > self.length:
+            return True
+        else:
+            return False
+
+    def __delitem__(self, key):
+        # support for slicing
+        if isinstance(key, slice):
+            idx = key.start
+            stop = max(key.stop, 0)
+            if self.OutOfBounds(idx): raise KeyError()
+            if self.OutOfBoundsStop(stop): raise KeyError()
+            
+            final_idx = self.start + stop
+            if final_idx > self.maxlen:
+                del self.data[(self.start + idx) : self.maxlen]
+                del self.data[0 : (final_idx % self.maxlen)]
+                count = final_idx - (self.start + idx)
+                self.length -= count
+                [self.data.append(None) for _ in range(count)]
+            else:
+                del self.data[(self.start + idx) : final_idx]
+                count = final_idx - (self.start + idx)
+                self.length -= count
+                [self.data.append(None) for _ in range(count)]
+
+        elif isinstance(key, int):
+            idx = key
+            del self.data[(self.start + idx) % self.maxlen]
+            self.length -= 1
+            self.data.append(None)
+
+    def __getitem__(self, key):
+        # support for slicing
+        if isinstance(key, slice):
+            idx = key.start
+            stop = max(key.stop, 0)
+            if self.OutOfBounds(idx): raise KeyError()
+            if self.OutOfBoundsStop(stop): raise KeyError()
+            
+            final_idx = self.start + stop
+            if final_idx > self.maxlen:
+                out = self.data[(self.start + idx) : self.maxlen] + self.data[0:(final_idx % self.maxlen)]
+                return out
+            else:
+                return self.data[(self.start + idx) : final_idx]
+
+        elif isinstance(key, int):
+            idx = key
+            if self.OutOfBounds(idx):
+                raise KeyError()
+            return self.data[(self.start + idx) % self.maxlen]
+    
+    def __setitem__(self, idx, val):
+        if self.OutOfBounds(idx):
             raise KeyError()
-        return self.data[(self.start + idx) % self.maxlen]
+        self.data[(self.start + idx) % self.maxlen] = val
 
     def append(self, v):
         if self.length < self.maxlen:
@@ -207,6 +268,90 @@ class SequentialMemory(Memory):
         config['limit'] = self.limit
         return config
 
+class SaveableMemory(SequentialMemory):
+    '''
+    this wrapper for the sequential memory class allows the user to dump 
+    the experiences into storage so that learning may continue at a later time using the same replay buffer
+
+    This is not to be used directly, but rather indirectly through the 'saveMemoryOnInterval' callback
+    '''
+    def __init__(self, **kwargs):
+        super(SaveableMemory, self).__init__(**kwargs)
+
+    def dump_memory(self, fpath, num_samples=None):
+        # save all experiences so training can continue another time.
+        # for now assumes observations are images and saves them as 
+        num_samples = num_samples or self.nb_entries
+        if num_samples > self.nb_entries: num_samples = self.nb_entries
+        minIdx = self.nb_entries - num_samples
+        
+        # create directory
+        if not os.path.exists(fpath):
+            os.makedirs(fpath) # makes all required parent directories
+        else:
+            warnings.warn("Memory dump directory already exists. Overwriting old data.")
+
+        # ---- dump number of samples ----
+        file_name = os.path.join(fpath, 'num_samples')
+        with open(file_name,'wb') as fileObject:
+            pickle.dump(num_samples, fileObject)
+
+        # ---- save the 3 non-image ringbuffers ---
+        for attr_name in ['actions', 'rewards', 'terminals']:
+            file_name = os.path.join(fpath, attr_name)
+            with open(file_name,'wb') as fileObject:
+                attr = getattr(self, attr_name)
+                del attr[0:minIdx]
+                assert(len(attr) == num_samples)
+                pickle.dump(attr, fileObject)   
+        # ---- save all images ----
+        # iterate through ring buffer. Automatically takes care of looping around
+        count = 0
+        for i in range(minIdx, self.nb_entries):
+            file_name = os.path.join(fpath, str(count)+'.npy')
+            # this works even with multiple inputs per observation, because it's all wrapped into 1 numpy array
+            img = self.observations[i] 
+            np.save(file_name, img)
+            count += 1
+
+    def load_memory(self, file_path, num_samples=None):
+        # ---- load number of samples ----
+        file_name = os.path.join(file_path, 'num_samples')
+        with open(file_name,'r') as fileObject:
+            old_num_samples = pickle.load(fileObject)
+            
+        # --- set num_samples ---
+        num_samples = num_samples or old_num_samples
+        if num_samples > old_num_samples: num_samples = old_num_samples
+        minIdx = old_num_samples - num_samples
+
+        # ---- load the 3 non-image ringbuffers ---
+        for attr_name in ['actions', 'rewards', 'terminals']:
+            file_name = os.path.join(file_path, attr_name)
+            with open(file_name, 'r') as fileObject:
+                attr = pickle.load(fileObject)  
+                # remove samples that were before num_samples
+                del attr[0:minIdx]
+                assert(len(attr) == num_samples)
+                # set self.attr
+                setattr(self, attr_name, attr)
+
+
+        # ---- load all images ----
+        for i in range(minIdx, old_num_samples): # only get freshest num_samples samples
+            file_name = os.path.join(file_path, str(i)+'.npy')
+            img = np.load(file_name)
+            self.observations.append(img)
+
+        assert(len(self.observations) == len(self.actions))
+        assert(len(self.observations) == len(self.rewards))
+        assert(len(self.observations) == len(self.terminals))
+
+        # to ensure no episode bleed-over, manually set the last last experience's terminal state to True
+        # this is how keras-rl does episode barriers -- there's always a non-terminal experience after the terminal step
+        if len(self.terminals) >= 2:
+            idx = len(self.terminals) - 2 # can't negative index
+            self.terminals[idx] = True
 
 class EpisodeParameterMemory(Memory):
     def __init__(self, limit, **kwargs):

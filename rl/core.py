@@ -41,7 +41,7 @@ class Agent(object):
         """
         return {}
 
-    def fit(self, env, nb_steps, action_repetition=1, callbacks=None, verbose=1,
+    def fit(self, env, nb_steps, step=0, action_repetition=1, callbacks=None, verbose=1,
             visualize=False, nb_max_start_steps=0, start_step_policy=None, log_interval=10000,
             nb_max_episode_steps=None):
         """Trains the agent on the given environment.
@@ -106,11 +106,12 @@ class Agent(object):
         callbacks.on_train_begin()
 
         episode = 0
-        self.step = 0
+        self.step = step
         observation = None
         episode_reward = None
         episode_step = None
         did_abort = False
+        print("Step: {}".format(self.step))
         try:
             while self.step < nb_steps:
                 if observation is None:  # start of a new episode
