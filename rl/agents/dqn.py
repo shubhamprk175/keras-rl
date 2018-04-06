@@ -1,6 +1,7 @@
 from __future__ import division
 import warnings
 import pdb
+import time, select
 
 import keras.backend as K
 from keras.models import Model
@@ -224,14 +225,19 @@ class DQNAgent(AbstractDQNAgent):
     def update_target_model_hard(self):
         self.target_model.set_weights(self.model.get_weights())
 
-    def forward(self, observation):
-        # Select an action.
-        state = self.memory.get_recent_state(observation)
-        q_values = self.compute_q_values(state)
+    def select_action(self, q_values):
         if self.training:
             action = self.policy.select_action(q_values=q_values)
         else:
             action = self.test_policy.select_action(q_values=q_values)
+        return action
+
+    def forward(self, observation):
+
+        # Select an action.
+        state = self.memory.get_recent_state(observation)
+        q_values = self.compute_q_values(state)
+        action = self.select_action(q_values)
 
         # Book-keeping.
         self.recent_observation = observation
@@ -370,6 +376,76 @@ class DQNAgent(AbstractDQNAgent):
         self.__test_policy = policy
         self.__test_policy._set_agent(self)
 
+
+class HumanDQNAgent(DQNAgent):
+
+    def __init__(self, **kwargs):
+        super(HumanDQNAgent, self).__init__(**kwargs)
+
+        # Parameters
+        self.humanex = True
+        self.action = np.zeros((self.nb_actions, ))
+        self.key = None
+
+    def getchar(self):
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    def keyboard_input(self):
+        key = self.getchar()
+        if key == 'j': 
+            self.action = 2 # left
+        if key == 'l': 
+            self.action = 3 # right
+        if key == 'i': 
+            self.action = 0 # forward
+        if key == 'k': 
+            self.action = 1 # back
+        if key == 'd':
+            pdb.set_trace() # enable debugging mode
+        if key == 'a':
+            print("\nYou have switched to automatic mode, opportunity go back manual will present itself every 1000 steps.\n")
+            self.humanex = False
+        #if key == 'm':
+        #    self.humanex = True
+
+    def select_action(self, q_values):
+
+        # human exploration is active while manual mode is not replaced by automatic mode
+        if self.humanex:
+            self.keyboard_input()
+            action = self.action
+
+        # every 1000 steps in automatic mode the environment will prompt if a user would like to
+        # go manual, timeout is 10 seconds for presing Ctrl+C that enables manual mode
+        elif self.training:
+            action = self.policy.select_action(q_values=q_values)
+
+            if self.step % 1000 == 0:
+                print("\nWould you like to switch to manual mode? You have 7 seconds to press 'm' followed by Enter to do that.")
+                sys.stdout.flush()
+                ready, _, _ = select.select([sys.stdin], [],[], 7)
+                if ready:
+                    key = sys.stdin.readline().rstrip('\n') # expect stdin to be line-buffered
+                    if key == 'm':
+                        self.humanex = True
+                if self.humanex:
+                    print("You have switched to manual mode, press 'a' to go back to automatic.\n")
+                else:
+                    print("\nContinuing in automatic mode\n")
+
+
+        # in the testing mode we only run the policy and estimate performance
+        else:
+            action = self.test_policy.select_action(q_values=q_values)
+        
+        return action
 
 class NAFLayer(Layer):
     """Write me
@@ -769,36 +845,43 @@ class HumanNAFAgent(NAFAgent):
     def keyboard_input(self):
         key = self.getchar()
         if key == 'j': 
-            self.action += np.array([0.0, 0.01]) # left
+            self.action += np.array([0.0, 0.05]) # left
         if key == 'l': 
-            self.action -= np.array([0.0, 0.01]) # right
+            self.action -= np.array([0.0, 0.05]) # right
         if key == 'i': 
-            self.action += np.array([0.01, 0.0]) # forward
+            self.action += np.array([0.05, 0.0]) # forward
         if key == 'k': 
-            self.action -= np.array([0.01, 0.0]) # back
+            self.action -= np.array([0.05, 0.0]) # back
 
     def select_action(self, state):
         batch = self.process_state_batch([state])
 
-        if self.training:
+        # First steps train with RL
+        if self.training and self.step <= 500000: 
+            action = self.mu_model.predict_on_batch(batch).flatten()
+
+        # Next steps use human input
+        elif self.training and self.step <= 5000:
             self.action = np.zeros((self.nb_actions, ))
             self.keyboard_input()
+            self.motor_state += self.action
+        
+        # Then train 10,000 more
+        elif self.training and self.step <= 100000:
+            action = self.mu_model.predict_on_batch(batch).flatten()
+        
+        # Otherwise test
         else:
             self.action = self.mu_model.predict_on_batch(batch).flatten()
+        
         assert self.action.shape == (self.nb_actions,)
 
-        
-        """
         # Apply noise, if a random process is set.
         if self.training and self.random_process is not None:
             noise = self.random_process.sample()
             assert noise.shape == self.action.shape
             self.action += noise
-        
-        print(self.action)
-        """
-        self.motor_state += self.action
-        print("\t\tMotors: ", self.motor_state)
+
         return self.action
 
 

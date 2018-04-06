@@ -107,6 +107,7 @@ class Agent(object):
 
         episode = 0
         self.step = 0
+        self.rewards = 0
         observation = None
         episode_reward = None
         episode_step = None
@@ -176,6 +177,11 @@ class Agent(object):
                             accumulated_info[key] = np.zeros_like(value)
                         accumulated_info[key] += value
                     callbacks.on_action_end(action)
+                    if r > 0.0:
+                        self.rewards += 1
+                        print("")
+                        print("%d rewards per %d steps (r = %.4f)" % (self.rewards, self.step, r))
+                        print("")
                     reward += r
                     if done:
                         break
