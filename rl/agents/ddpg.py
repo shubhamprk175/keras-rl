@@ -209,7 +209,7 @@ class DDPGAgent(Agent):
         if self.training and self.random_process is not None:
             noise = self.random_process.sample()
             assert noise.shape == action.shape
-            print "\nRaw action: {}. Noise: {}.".format(action, noise)
+            print("\nRaw action: {}. Noise: {}.".format(action, noise))
             action += noise
 
         return action
