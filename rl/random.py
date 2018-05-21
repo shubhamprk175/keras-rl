@@ -22,6 +22,7 @@ class AnnealedSinusoidExponential(RandomProcess):
         self.eps_min = eps_min
         self.eps_d   = eps_d
         self.nb_valleys = nb_valleys
+        self.n_steps_annealing = n_steps_annealing
         self.n_steps = 0
 
         self.eps0 = self.eps_max - self.eps_min
@@ -90,6 +91,9 @@ class OUProcessWithRandomStart(OrnsteinUhlenbeckProcess):
 class GaussianSinusoidProcess(AnnealedSinusoidExponential):
     def __init__(self, mu=0., sigma=1., sigma_min=None, eps_d=0.998, nb_valleys=25, n_steps_annealing=1000, size=1):
         super(GaussianSinusoidProcess, self).__init__(eps_max=sigma, eps_min=sigma_min, eps_d=eps_d, nb_valleys=nb_valleys, n_steps_annealing=n_steps_annealing)
+
+        self.mu = mu
+        self.n_steps = 0
         self.size = size
 
     def sample(self):

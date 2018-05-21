@@ -387,7 +387,7 @@ class HumanDDPGAgent(DDPGAgent):
 
     def select_action(self, state):
         # eps-greedy approach to selecting either human action or network action
-        if np.random.rand() <= self.humanex_prob:
+        if np.random.uniform() < self.humanex_prob:
             action = self.select_human_action(state)
             # to see how the agent is changing. This won't use the action, will just print it out
             super(HumanDDPGAgent, self).select_action(state)

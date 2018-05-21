@@ -268,7 +268,7 @@ class SequentialMemory(Memory):
         config['limit'] = self.limit
         return config
 
-class SaveableMemory(SequentialMemory):
+class PersistentMemory(SequentialMemory):
     '''
     this wrapper for the sequential memory class allows the user to dump 
     the experiences into storage so that learning may continue at a later time using the same replay buffer
@@ -276,13 +276,18 @@ class SaveableMemory(SequentialMemory):
     This is not to be used directly, but rather indirectly through the 'saveMemoryOnInterval' callback
     '''
     def __init__(self, **kwargs):
-        super(SaveableMemory, self).__init__(**kwargs)
+        super(PersistentMemory, self).__init__(**kwargs)
 
     def dump_memory(self, fpath, num_samples=None):
         # save all experiences so training can continue another time.
         # for now assumes observations are images and saves them as 
         num_samples = num_samples or self.nb_entries
         if num_samples > self.nb_entries: num_samples = self.nb_entries
+
+        if num_samples <= 10: # just to make sure we don't accidentally overwrite
+            warnings.warn("Too few number of samples. Skipping memory dump.")
+            return
+
         minIdx = self.nb_entries - num_samples
         
         # create directory
@@ -352,6 +357,8 @@ class SaveableMemory(SequentialMemory):
         if len(self.terminals) >= 2:
             idx = len(self.terminals) - 2 # can't negative index
             self.terminals[idx] = True
+
+        print("Memory succesfully loaded. Initial size: {}".format(len(self.observations)))
 
 class EpisodeParameterMemory(Memory):
     def __init__(self, limit, **kwargs):

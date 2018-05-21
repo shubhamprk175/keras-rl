@@ -180,10 +180,13 @@ class Agent(object):
                     reward += r
                     if done:
                         break
+                wasFault = False
+                if 'fault' in accumulated_info:
+                    wasFault = accumulated_info['fault']
                 if nb_max_episode_steps and episode_step >= nb_max_episode_steps - 1:
                     # Force a terminal state.
                     done = True
-                metrics = self.backward(reward, terminal=done)
+                metrics = self.backward(reward, terminal=done, wasFault=wasFault)
                 episode_reward += reward
 
                 step_logs = {
@@ -193,6 +196,7 @@ class Agent(object):
                     'metrics': metrics,
                     'episode': episode,
                     'info': accumulated_info,
+                    'fault': wasFault
                 }
                 callbacks.on_step_end(episode_step, step_logs)
                 episode_step += 1
@@ -229,7 +233,7 @@ class Agent(object):
 
         return history
 
-    def test(self, env, nb_episodes=1, action_repetition=1, callbacks=None, visualize=True,
+    def test(self, env, nb_episodes=1, step=0, action_repetition=1, callbacks=None, visualize=True,
              nb_max_episode_steps=None, nb_max_start_steps=0, start_step_policy=None, verbose=1):
         """Callback that is called before training begins."
         """
@@ -239,7 +243,8 @@ class Agent(object):
             raise ValueError('action_repetition must be >= 1, is {}'.format(action_repetition))
 
         self.training = False
-        self.step = 0
+        self.step = step
+        print("Step: {}".format(self.step))
 
         callbacks = [] if not callbacks else callbacks[:]
 

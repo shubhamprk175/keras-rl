@@ -9,7 +9,7 @@ import numpy as np
 
 from keras.callbacks import Callback as KerasCallback, CallbackList as KerasCallbackList
 from keras.utils.generic_utils import Progbar
-from rl.memory import SaveableMemory
+from rl.memory import PersistentMemory
 
 
 class Callback(KerasCallback):
@@ -247,7 +247,8 @@ class TrainIntervalLogger(Callback):
         self.step += 1
         self.metrics.append(logs['metrics'])
         if len(self.info_names) > 0:
-            self.infos.append([logs['info'][k] for k in self.info_names])
+            if logs['info'] is not None:
+                self.infos.append([logs['info'][k] for k in self.info_names])
 
     def on_episode_end(self, episode, logs):
         self.episode_rewards.append(logs['episode_reward'])
@@ -349,10 +350,10 @@ class ModelIntervalCheckpoint(Callback):
         self.model.save_weights(filepath, overwrite=True)
 
 class MemoryIntervalCheckpoint(Callback):
-    def __init__(self, saveable_memory, filepath, interval, num_samples=None, verbose=0, total_steps=0):
+    def __init__(self, persistent_memory, filepath, interval, num_samples=None, verbose=0, total_steps=0):
         super(MemoryIntervalCheckpoint, self).__init__()
-        assert( hasattr(saveable_memory, 'dump_memory') )
-        self.saveable_memory = saveable_memory
+        assert( hasattr(persistent_memory, 'dump_memory') )
+        self.persistent_memory = persistent_memory
         self.filepath = filepath
         self.interval = interval
         self.num_samples = num_samples
@@ -368,4 +369,26 @@ class MemoryIntervalCheckpoint(Callback):
         filepath = self.filepath.format(step=self.total_steps, **logs)
         if self.verbose > 0:
             print('Step {}: saving memory to {}'.format(self.total_steps, filepath))
-        self.saveable_memory.dump_memory(filepath, num_samples=self.num_samples)
+        self.persistent_memory.dump_memory(filepath, num_samples=self.num_samples)
+
+class MemoryEpisodeCheckpoint(Callback):
+    def __init__(self, persistent_memory, filepath, episode_interval, num_samples=None, verbose=0, total_episodes=0):
+        super(MemoryEpisodeCheckpoint, self).__init__()
+        assert( hasattr(persistent_memory, 'dump_memory') )
+        self.persistent_memory = persistent_memory
+        self.filepath = filepath
+        self.episode_interval = episode_interval
+        self.num_samples = num_samples
+        self.verbose = verbose
+        self.total_episodes = total_episodes
+
+    def on_episode_end(self, episode, logs):
+        self.total_episodes += 1
+        if self.total_episodes % self.episode_interval != 0:
+            # Nothing to do.
+            return
+
+        filepath = self.filepath.format(episode=self.total_episodes, **logs)
+        if self.verbose > 0:
+            print('Episode {}: saving memory to {}'.format(self.total_episodes, filepath))
+        self.persistent_memory.dump_memory(filepath, num_samples=self.num_samples)

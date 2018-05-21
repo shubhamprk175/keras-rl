@@ -69,6 +69,34 @@ class LinearAnnealedPolicy(Policy):
         config['inner_policy'] = get_object_config(self.inner_policy)
         return config
 
+class AnnealedSinusoidExponential(Policy):
+    '''
+    Idea from this paper: http://cs231n.stanford.edu/reports/2017/pdfs/616.pdf part 5.1
+    Can't be ran alone. Meant to be inherited by another random process
+
+    -  eps_max is initial value
+    -  eps_min is final value
+    -  eps_d is decay rate
+    -  nb_valleys is number of valleys in function
+    -  nb_steps_annealing is number of steps before annealing is complete
+    '''
+    def __init__(self, eps_max=1.0, eps_min=0.0, eps_d=0.998, nb_valleys=25, n_steps_annealing=5000):
+        super(AnnealedSinusoidExponential, self).__init__()
+        self.eps_max = eps_max
+        self.eps_min = eps_min
+        self.eps_d   = eps_d
+        self.nb_valleys = nb_valleys
+        self.n_steps_annealing = n_steps_annealing
+        self.n_steps = 0
+
+        self.eps0 = self.eps_max - self.eps_min
+
+    @property
+    def current_anneal_value(self):
+        out = self.eps_min + self.eps0 * (self.eps_d ** self.n_steps) * 0.5 * (1. + 
+                    np.cos(2 * np.pi * self.n_steps * self.nb_valleys / self.n_steps_annealing))
+        return out
+
 
 class EpsGreedyQPolicy(Policy):
     def __init__(self, eps=.1):
@@ -116,6 +144,34 @@ class BoltzmannQPolicy(Policy):
 
     def get_config(self):
         config = super(BoltzmannQPolicy, self).get_config()
+        config['tau'] = self.tau
+        config['clip'] = self.clip
+        return config
+
+class BoltzmannQSinExp(AnnealedSinusoidExponential):
+    def __init__(self, tau=1., clip=(-500., 500.), eps_max=1.0, eps_min=0.0, eps_d=0.998, nb_valleys=25, n_steps_annealing=1000):
+        super(BoltzmannQSinExp, self).__init__(eps_max=eps_max, eps_min=eps_min, eps_d=eps_d, nb_valleys=nb_valleys, n_steps_annealing=n_steps_annealing)
+        self.tau = tau
+        self.clip = clip
+
+    def select_action(self, q_values):
+        assert q_values.ndim == 1
+        print("\nq_values: {}".format(q_values))
+        q_values = q_values.astype('float64')
+        nb_actions = q_values.shape[0]
+
+        self.eps = self.current_anneal_value
+        if np.random.uniform() < self.eps:
+            exp_values = np.exp(np.clip(q_values / self.tau, self.clip[0], self.clip[1]))
+            probs = exp_values / np.sum(exp_values)
+            action = np.random.choice(range(nb_actions), p=probs)
+        else:
+            action = np.argmax(q_values)
+        return action
+
+    def get_config(self):
+        config = super(BoltzmannQSinExp, self).get_config()
+        config['eps'] = self.eps
         config['tau'] = self.tau
         config['clip'] = self.clip
         return config

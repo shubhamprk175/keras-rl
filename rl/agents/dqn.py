@@ -100,7 +100,7 @@ class DQNAgent(AbstractDQNAgent):
             `naive`: Q(s,a;theta) = V(s;theta) + A(s,a;theta) 
  
     """
-    def __init__(self, model, policy=None, test_policy=None, enable_double_dqn=True, enable_dueling_network=False,
+    def __init__(self, model, policy=None, test_policy=None, clone_model=None, enable_double_dqn=True, enable_dueling_network=False,
                  dueling_type='avg', *args, **kwargs):
         super(DQNAgent, self).__init__(*args, **kwargs)
 
@@ -148,6 +148,7 @@ class DQNAgent(AbstractDQNAgent):
             test_policy = GreedyQPolicy()
         self.policy = policy
         self.test_policy = test_policy
+        self.clone_model = clone_model
 
         # State.
         self.reset_states()
@@ -168,7 +169,10 @@ class DQNAgent(AbstractDQNAgent):
         metrics += [mean_q]  # register default metrics
 
         # We never train the target model, hence we can set the optimizer and loss arbitrarily.
-        self.target_model = clone_model(self.model, self.custom_model_objects)
+        if self.clone_model is not None:
+            self.target_model = self.clone_model(self.model)
+        else:
+            self.target_model = clone_model(self.model, self.custom_model_objects)
         self.target_model.compile(optimizer='sgd', loss='mse')
         self.model.compile(optimizer='sgd', loss='mse')
 
@@ -231,15 +235,16 @@ class DQNAgent(AbstractDQNAgent):
         else:
             action = self.test_policy.select_action(q_values=q_values)
 
+        #print("Q-values: {}".format(q_values))
         # Book-keeping.
         self.recent_observation = observation
         self.recent_action = action
 
         return action
 
-    def backward(self, reward, terminal):
+    def backward(self, reward, terminal, wasFault=False):
         # Store most recent experience in memory.
-        if self.step % self.memory_interval == 0:
+        if (not wasFault) and self.step % self.memory_interval == 0:
             self.memory.append(self.recent_observation, self.recent_action, reward, terminal,
                                training=self.training)
 
